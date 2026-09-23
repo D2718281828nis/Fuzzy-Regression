@@ -21,14 +21,14 @@ Run all cells from top to bottom. The notebook has no network or external-data d
 
 - leakage-free rolling-origin evaluation rather than judging a model from one convenient year;
 - forecasts for **1, 2, and 3 steps ahead**;
-- frequency-weighted first- and second-order FTS;
+- trend-aware, recency-weighted first- and second-order FTS over annual changes;
 - comparison with persistence (last value) and a linear-trend baseline;
 - MAE, RMSE and MAPE calculated separately for every horizon;
 - recursive FTS forecasting, including the fallback used for unseen higher-order rules.
 
 - оценивание методом скользящего начала прогноза без утечки будущих данных;
 - прогнозы на **1, 2 и 3 шага вперёд**;
-- частотно-взвешенные FTS первого и второго порядка;
+- учитывающие тренд и давность наблюдений FTS первого и второго порядка для годовых изменений;
 - сравнение с прогнозом последним значением и линейным трендом;
 - MAE, RMSE и MAPE отдельно для каждого горизонта;
 - рекурсивный FTS-прогноз и явное правило отката для невиданных правил высокого порядка.
@@ -38,15 +38,15 @@ Run all cells from top to bottom. The notebook has no network or external-data d
 ### Fuzzy sets and fuzzification
 
 A fuzzy set replaces a hard boundary with a membership function
-`mu_A(x) in [0, 1]`. The observed range is padded and divided into equal intervals. Their midpoints are the peaks of overlapping triangular fuzzy sets `A1, ..., Ak`. A numeric observation is **fuzzified** by assigning it to the set with the greatest membership (equivalently, the nearest midpoint for these regular triangles).
+`mu_A(x) in [0, 1]`. The model transforms levels into annual changes, pads the observed change range, and divides it into equal intervals. Their midpoints are the peaks of overlapping triangular fuzzy sets `D1, ..., Dk`. A numeric change is **fuzzified** by assigning it to the set with the greatest membership (equivalently, the nearest midpoint for these regular triangles). Modeling changes avoids the common level-state failure mode in which recursive forecasts settle on one interval midpoint and become horizontal.
 
 ### Fuzzy logical relationships
 
-For first-order FTS, adjacent states create rules `A(t-1) -> A(t)`. A second-order model uses `(A(t-2), A(t-1)) -> A(t)` and can represent short local patterns, but its rule table is sparser. The notebook retains transition frequencies. Thus, if `Ai` was followed by `Aj` three times and `Ak` once, their midpoint weights are 3/4 and 1/4 rather than 1/2 and 1/2.
+For first-order FTS, adjacent change states create rules `D(t-1) -> D(t)`. A second-order model uses `(D(t-2), D(t-1)) -> D(t)` and can represent short local patterns, but its rule table is sparser. Evidence is weighted by recency with exponential decay: recent transitions influence the forecast more strongly without discarding older history.
 
 ### Defuzzification and several steps ahead
 
-The next crisp forecast is the frequency-weighted mean of consequent-set midpoints. For an unseen second-order context, the implementation backs off to the learned first-order rule; if that too is unseen, it uses the current state's midpoint. Multi-step forecasts are recursive: fuzzify the predicted value, append that predicted state, and apply the rules again. Error normally grows with horizon because later forecasts depend on earlier forecasts.
+The next crisp **change** is the recency-weighted mean of consequent-set midpoints and is added to the previous level. For an unseen second-order context, the implementation backs off to the learned first-order rule; if that too is unseen, it uses a recency-weighted average of the last three changes. Multi-step forecasts are recursive: fuzzify the predicted change, append the reconstructed level, and apply the rules again. A five-step example trained through 1987 makes the resulting non-horizontal trajectory explicit. Error normally grows with horizon because later forecasts depend on earlier forecasts.
 
 ### Honest evaluation
 
@@ -57,15 +57,15 @@ At each rolling origin, a model sees only the prefix ending at that origin. It t
 ### Нечёткие множества и фаззификация
 
 Нечёткое множество заменяет жёсткую границу функцией принадлежности
-`mu_A(x) in [0, 1]`. Диапазон наблюдений расширяется небольшим запасом и разбивается на равные интервалы. Их середины становятся вершинами перекрывающихся треугольных множеств `A1, ..., Ak`. Число **фаззифицируется** выбором множества с максимальной степенью принадлежности (для таких равномерных треугольников — ближайшей середины).
+`mu_A(x) in [0, 1]`. Модель преобразует уровни в годовые изменения, расширяет диапазон изменений небольшим запасом и разбивает его на равные интервалы. Их середины становятся вершинами перекрывающихся треугольных множеств `D1, ..., Dk`. Изменение **фаззифицируется** выбором множества с максимальной степенью принадлежности. Моделирование изменений устраняет типичную проблему FTS уровней, когда рекурсивный прогноз попадает в одну середину интервала и превращается в горизонтальную линию.
 
 ### Нечёткие логические отношения
 
-FTS первого порядка формирует из соседних состояний правила `A(t-1) -> A(t)`. Модель второго порядка использует `(A(t-2), A(t-1)) -> A(t)`: она способна учитывать короткий локальный паттерн, но таблица правил получается более разреженной. В ноутбуке сохраняются частоты переходов. Поэтому если после `Ai` состояние `Aj` встречалось три раза, а `Ak` один раз, их середины получают веса 3/4 и 1/4, а не 1/2 и 1/2.
+FTS первого порядка формирует из соседних состояний изменений правила `D(t-1) -> D(t)`. Модель второго порядка использует `(D(t-2), D(t-1)) -> D(t)`: она способна учитывать короткий локальный паттерн, но таблица правил получается более разреженной. Переходы взвешиваются экспоненциально по давности, поэтому недавняя динамика влияет сильнее, но старая история не отбрасывается.
 
 ### Дефаззификация и прогноз на несколько шагов
 
-Числовой прогноз — взвешенное по частотам среднее середин множеств в правой части правила. Для неизвестного контекста второго порядка алгоритм использует изученное правило первого порядка, а при отсутствии и такого правила — середину текущего множества. Многошаговый прогноз строится рекурсивно: предсказанное число фаззифицируется, состояние добавляется в историю, и правило применяется снова. Поэтому с ростом горизонта ошибка обычно увеличивается.
+Числовой прогноз **изменения** — взвешенное по давности среднее середин множеств в правой части правила; изменение прибавляется к последнему уровню. Для неизвестного контекста второго порядка алгоритм использует правило первого порядка, а затем средневзвешенное трёх последних изменений. Многошаговый прогноз строится рекурсивно. Пример обучается по данным до 1987 года и прогнозирует пять следующих лет, явно демонстрируя негоризонтальную траекторию. С ростом горизонта ошибка обычно увеличивается.
 
 ### Корректное оценивание
 
